@@ -2,43 +2,74 @@
 
 [简体中文](README.md) · **English**
 
-**ChatGPT plans and reviews. Codex changes and verifies.**
+> **Sol thinks. Luna coordinates. Codex executes.**
 
-Hua PlanRelay is an independent, open-source bridge for a local coding workflow. It gives ChatGPT a narrow, read-only view of one workspace so ChatGPT can help make a plan and review a diff, while Codex remains the agent that edits files, runs commands, and controls Git.
+Hua PlanRelay is a local coding-workflow bridge. Luna stays on the Codex side for high-frequency coordination, context preparation, local edits, and verification. When the account supports it, genuinely difficult planning and review can be handed to Sol in the browser. The two sides exchange a bounded read-only workspace view and structured records rather than copying entire conversations or sharing execution authority.
 
-> **Status:** early development (`0.1.x`). The local gateway and protocol are the primary target. Remote/public plugin packaging is not implied by a local install and must be reviewed separately.
+The core idea is inspired by [Codex with ChatGPT](https://github.com/XiaoDuoYa/codex-with-chatgpt). Hua PlanRelay is an independent implementation with an explicit distinction between current capabilities and the intended end-state workflow.
 
-## What it is — and is not
+> **Status:** `0.1.x` implements the secure local read-only bridge, CLI, plugin, and plan/review protocol. “Luna automatically operates Sol in the browser” remains a product direction, not a capability already delivered by this release.
 
-Hua PlanRelay is:
+## The problem it addresses
 
-- a workspace-scoped MCP server;
-- a read-only code, Git-status, diff, search, and test-summary surface for a model;
-- an append-only coordination log stored outside the repository;
-- a set of Codex/plugin instructions for a plan → execute → review workflow.
+Complex coding work mixes two different kinds of effort:
 
-It is **not** an OpenAI product, an OpenAI-operated service, or a quota workaround. It does not promise to reduce, avoid, or bypass ChatGPT/Codex limits. Availability, limits, retention, and account controls are determined by the product and account used.
+- **high-frequency execution:** reading status, preparing context, editing files, running tests, and handling Git;
+- **high-value reasoning:** decomposing difficult requirements, choosing an architecture, finding failure modes, and independently reviewing the result.
 
-It also does not promise that “the repository is never uploaded.” When a connected model calls a read tool, the requested file names, metadata, or code excerpts can be sent to that model provider. Do not connect a workspace unless that disclosure is acceptable to you.
+Using the most capable model continuously means routine coordination can consume the same scarce allowance as the hard reasoning. Hua PlanRelay routes work by task shape:
 
-## Workflow
+| Role | Best suited for | Should not do |
+| --- | --- | --- |
+| **Luna / Codex** | frequent coordination, tool-result handling, local edits, tests, iteration | own every deep planning step merely because it can |
+| **Sol in the browser** | difficult planning, architecture trade-offs, failure analysis, independent review | receive shell, file-write, commit, or push authority |
+| **PlanRelay** | expose bounded context and relay plans/reviews | execute commands or bypass product limits |
+
+### How it may reduce usage
+
+Moving planning and review out of a long-running high-capability Codex session and into an available ChatGPT web model **may** reduce the amount of high-capability Codex usage spent on reasoning. Using Luna for frequent coordination also matches its cost-sensitive, high-volume positioning.
+
+This is not a free-quota converter, and it cannot guarantee lower total usage. Whether ChatGPT web, Work, Codex, and individual models share allowances, use separate limits, or draw credits depends on the plan, workspace settings, and current product rules. Treat the Usage screen in your account as authoritative. See OpenAI's [GPT-5.6 model guidance](https://developers.openai.com/api/docs/guides/latest-model) for the current Sol/Luna positioning.
+
+## How it works
 
 ```text
-User task
-   │
-   ├── ChatGPT: inspect selected context → produce a structured plan
-   │
-   ├── Codex: review/approve plan → edit files, run commands, test
-   │
-   └── ChatGPT: inspect status/diff/test summary → publish review
+             ┌──────────────────────────────┐
+             │ ChatGPT / Sol in the browser │
+             │ deep planning · design · review │
+             └──────────────┬───────────────┘
+                            │ read-only MCP: bounded context
+                            │ structured Plan / Review records
+                            ▼
+             ┌──────────────────────────────┐
+             │        Hua PlanRelay         │
+             │ path guard · secret filtering · paging │
+             └──────────────┬───────────────┘
+                            │ local handoff
+                            ▼
+             ┌──────────────────────────────┐
+             │ Luna / Codex                 │
+             │ edit · shell · test · Git    │
+             └──────────────┬───────────────┘
+                            ▼
+                       local workspace
 ```
 
-The gateway has two deliberately separate surfaces:
+- **Data plane:** read-only access to one bound workspace; there are no write, shell, commit, or push tools.
+- **Control plane:** plans, execution summaries, and reviews are append-only records outside the repository.
+- **Review loop:** Sol can inspect the real diff and test summary before approving, requesting changes, or blocking.
+- **Browser boundary:** V1 uses a user-mediated browser handoff. Future Luna-driven browser assistance must require explicit user authorization and preserve login, CAPTCHA, and external-action boundaries.
 
-1. **Workspace data plane:** read-only access under one configured root. No write-file, shell, commit, push, or arbitrary-path tool is exposed.
-2. **Coordination control plane:** append-only plan/review/status records in the application state directory. These records cannot write to the repository and do not contain executable commands.
+## What exists today
 
-See [the architecture](docs/architecture.md), [protocol](docs/protocol.md), and [threat model](docs/threat-model.md) before exposing a server beyond localhost.
+| Implemented in `0.1.x` | Product direction |
+| --- | --- |
+| 10 workspace, Git, task, plan, and review MCP tools | user-authorized Luna assistance for the browser/Sol handoff |
+| stdio and loopback-only HTTP transports | stable HTTPS, OAuth, and revocable remote connections |
+| traversal, symlink, sensitive-path, and size controls | a more complete one-paste setup and visual status experience |
+| Codex plugin, Skill, CLI, and append-only state | diff/test evidence digests and stronger review binding |
+
+Read [the architecture](docs/architecture.md), [protocol](docs/protocol.md), and [threat model](docs/threat-model.md) before using it with sensitive work.
 
 ## Requirements
 
@@ -73,6 +104,27 @@ export PLANRELAY_STATE_DIR="$HOME/.local/state/hua-planrelay"
 ```
 
 Never place tokens, state logs, or local configuration inside the repository. See [installation](docs/installation.md) for a complete local and remote setup, and [tunnels](docs/tunnels.md) before using a public HTTPS endpoint.
+
+## Shortest working flow
+
+The current release is not a “paste one sentence and let it control the browser” system. It provides an inspectable workflow that can be connected step by step:
+
+1. Create a task for the local project:
+
+   ```bash
+   pnpm dev task create \
+     --workspace /absolute/path/to/project \
+     --goal "Add login rate limiting and tests" \
+     --json
+   ```
+
+2. Start the read-only gateway and connect the plugin as described in [installation](docs/installation.md). Prefer OpenAI Secure MCP Tunnel when the web client must reach the local gateway.
+3. In ChatGPT in the browser, select Sol when it is available to the account and send: `Plan the current Hua PlanRelay task.`
+4. Luna / Codex reads the plan, edits locally, runs tests, and records a structured execution summary.
+5. In the same browser conversation, send: `Review the current Hua PlanRelay task.` Sol inspects the real diff and test summary through MCP.
+6. Apply findings until the result is approved or genuinely blocked.
+
+In the intended end state, Luna can assist with steps 3 and 5 after explicit user authorization. Login, CAPTCHA, two-factor authentication, and other external actions remain with the user.
 
 ## ChatGPT/Codex connection
 
