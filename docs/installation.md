@@ -4,7 +4,7 @@
 
 Use a dedicated test repository first. Remove credentials and production data, decide whether untracked files are needed, and review the [privacy notice](privacy.md). A connected model can receive the content returned by a tool call.
 
-Requirements are Node.js 20/22/24, pnpm 11, and (for Git tools) Git. The package manager is pinned in `package.json`; use a reproducible lockfile install.
+Requirements are Node.js 20/22/24, pnpm 10, and (for Git tools) Git. The package manager is pinned in `package.json`; use a reproducible lockfile install.
 
 ## From source
 

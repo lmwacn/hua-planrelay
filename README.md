@@ -41,7 +41,7 @@ See [the architecture](docs/architecture.md), [protocol](docs/protocol.md), and 
 ## Requirements
 
 - Node.js 20, 22, or 24
-- pnpm 11 (the repository pins the package manager version)
+- pnpm 10 (the repository pins a Node 20-compatible package manager version)
 - a local Git checkout for Git tools
 - ChatGPT/Codex access that supports the relevant MCP/plugin surface, if you use the integration
 

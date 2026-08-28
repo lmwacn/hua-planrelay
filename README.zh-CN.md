@@ -41,7 +41,7 @@ Hua PlanRelay 是一个独立开源的本地编程协作桥。它让 ChatGPT 以
 ## 环境要求
 
 - Node.js 20、22 或 24
-- pnpm 11（仓库固定了包管理器版本）
+- pnpm 10（仓库固定了兼容 Node.js 20 的包管理器版本）
 - 使用 Git 工具时需要本地 Git 仓库
 - 若使用集成，需要具备支持相应 MCP/插件能力的 ChatGPT/Codex 账号
 

@@ -28352,7 +28352,7 @@ import { basename } from "node:path";
 
 // src/version.ts
 var NAME = "hua-planrelay";
-var VERSION = "0.1.0";
+var VERSION = "0.1.1";
 
 // src/mcp/server.ts
 var cursor = external_exports.string().regex(/^[A-Za-z0-9_-]*$/).max(200).optional();

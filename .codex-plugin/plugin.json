@@ -1,6 +1,6 @@
 {
   "name": "hua-planrelay",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Workspace-safe planning and review relay for ChatGPT and Codex.",
   "author": {
     "name": "田小檬",

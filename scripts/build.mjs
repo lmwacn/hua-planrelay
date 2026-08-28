@@ -42,6 +42,6 @@ for (const [identity, { directory, manifest }] of [...packages].sort(([a], [b]) 
   components.push({ type: "library", name: manifest.name, version: manifest.version, licenses: [{ license: { id: manifest.license ?? "UNKNOWN" } }], purl: `pkg:npm/${encodeURIComponent(manifest.name)}@${manifest.version}` });
 }
 await writeFile("dist/THIRD_PARTY_NOTICES.txt", `${notices.join("\n")}\n`, "utf8");
-await writeFile("dist/sbom.cdx.json", `${JSON.stringify({ bomFormat: "CycloneDX", specVersion: "1.5", version: 1, metadata: { component: { type: "application", name: "hua-planrelay", version: "0.1.0" } }, components }, null, 2)}\n`, "utf8");
+await writeFile("dist/sbom.cdx.json", `${JSON.stringify({ bomFormat: "CycloneDX", specVersion: "1.5", version: 1, metadata: { component: { type: "application", name: "hua-planrelay", version: "0.1.1" } }, components }, null, 2)}\n`, "utf8");
 const bundle = await readFile("dist/hua-planrelay.mjs");
 await writeFile("dist/SHA256SUMS", `${createHash("sha256").update(bundle).digest("hex")}  hua-planrelay.mjs\n`, "utf8");
