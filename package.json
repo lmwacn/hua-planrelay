@@ -1,0 +1,36 @@
+{
+  "name": "hua-planrelay",
+  "version": "0.1.0",
+  "description": "A workspace-safe planning and review relay for ChatGPT and Codex.",
+  "type": "module",
+  "license": "MIT",
+  "bin": {
+    "hua-planrelay": "./bin/hua-planrelay.js"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "packageManager": "pnpm@11.24.0",
+  "scripts": {
+    "build": "tsc --noEmit && node scripts/build.mjs",
+    "dev": "tsx src/cli/index.ts",
+    "start": "node dist/hua-planrelay.mjs serve",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "typecheck": "tsc --noEmit",
+    "validate": "pnpm build && pnpm test"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "1.30.0",
+    "commander": "14.0.3",
+    "ignore": "7.0.6",
+    "zod": "3.25.76"
+  },
+  "devDependencies": {
+    "@types/node": "22.20.1",
+    "esbuild": "0.28.2",
+    "tsx": "4.23.12",
+    "typescript": "5.9.3",
+    "vitest": "3.2.7"
+  }
+}

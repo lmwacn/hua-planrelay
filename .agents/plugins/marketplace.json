@@ -1,0 +1,21 @@
+{
+  "name": "hua-planrelay",
+  "interface": {
+    "displayName": "Hua PlanRelay"
+  },
+  "plugins": [
+    {
+      "name": "hua-planrelay",
+      "source": {
+        "source": "url",
+        "url": "https://github.com/lmwacn/hua-planrelay.git",
+        "ref": "v0.1.0"
+      },
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      },
+      "category": "Productivity"
+    }
+  ]
+}

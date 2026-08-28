@@ -1,0 +1,13 @@
+{
+  "mcpServers": {
+    "hua-planrelay": {
+      "command": "node",
+      "args": [
+        "${PLUGIN_ROOT}/dist/hua-planrelay.mjs",
+        "serve",
+        "--transport",
+        "stdio"
+      ]
+    }
+  }
+}

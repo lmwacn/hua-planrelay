@@ -1,0 +1,7 @@
+# Security-sensitive changes require maintainer review.
+* @lmwacn
+/SECURITY.md @lmwacn
+/docs/threat-model.md @lmwacn
+/src/auth/ @lmwacn
+/src/mcp/ @lmwacn
+/.github/ @lmwacn

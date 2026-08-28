@@ -1,0 +1,35 @@
+{
+  "name": "hua-planrelay",
+  "version": "0.1.0",
+  "description": "Workspace-safe planning and review relay for ChatGPT and Codex.",
+  "author": {
+    "name": "田小檬",
+    "email": "admin@lmwa.cn",
+    "url": "https://github.com/lmwacn"
+  },
+  "homepage": "https://github.com/lmwacn/hua-planrelay",
+  "repository": "https://github.com/lmwacn/hua-planrelay",
+  "license": "MIT",
+  "keywords": ["chatgpt", "codex", "mcp", "planning", "code-review", "read-only"],
+  "skills": "./skills/",
+  "interface": {
+    "displayName": "Hua PlanRelay",
+    "shortDescription": "Plan with ChatGPT, execute safely with Codex.",
+    "longDescription": "Connect ChatGPT and Codex to a workspace-safe planning and independent review workflow. Repository tools are read-only; structured coordination records live outside the workspace.",
+    "developerName": "田小檬",
+    "category": "Productivity",
+    "capabilities": ["Read-only workspace", "Planning", "Code review"],
+    "websiteURL": "https://github.com/lmwacn/hua-planrelay",
+    "privacyPolicyURL": "https://github.com/lmwacn/hua-planrelay/blob/main/docs/privacy.md",
+    "termsOfServiceURL": "https://github.com/lmwacn/hua-planrelay/blob/main/docs/terms.md",
+    "defaultPrompt": [
+      "Plan the current Hua PlanRelay coding task.",
+      "Review the current Hua PlanRelay changes.",
+      "Explain the connected workspace without exposing secrets."
+    ],
+    "brandColor": "#5B5BD6",
+    "composerIcon": "./assets/logo.svg",
+    "logo": "./assets/logo.svg"
+  },
+  "mcpServers": "./.mcp.json"
+}

@@ -1,0 +1,13 @@
+Hua PlanRelay
+Copyright (c) 2026 Hua PlanRelay contributors
+
+Hua PlanRelay is an independent open-source project. It is not affiliated with,
+endorsed by, sponsored by, or operated by OpenAI. “ChatGPT” and “Codex” are
+trademarks or product names of their respective owner; references describe
+compatibility or workflow, not endorsement.
+
+This repository is an independent implementation. No source code is copied
+from the project that inspired the initial workflow design. Dependencies and
+their licenses are recorded by the package manager lockfile and must retain
+their own notices when distributed. Bundled release artifacts include
+`dist/THIRD_PARTY_NOTICES.txt` and `dist/sbom.cdx.json`.

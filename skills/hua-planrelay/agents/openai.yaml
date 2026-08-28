@@ -1,0 +1,5 @@
+interface:
+  display_name: "Hua PlanRelay"
+  short_description: "让 ChatGPT 只读规划审查，Codex 安全执行。"
+  brand_color: "#5B5BD6"
+  default_prompt: "Use $hua-planrelay to plan and review this coding task through the connected workspace."
