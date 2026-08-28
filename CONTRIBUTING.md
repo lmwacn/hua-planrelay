@@ -1,6 +1,6 @@
 # Contributing to Hua PlanRelay
 
-感谢你的贡献。请先阅读 [README.zh-CN.md](README.zh-CN.md)、[架构](docs/architecture.md)、[协议](docs/protocol.md) 和 [SECURITY.md](SECURITY.md)。Hua PlanRelay 的核心边界是：工作区数据只读，协作状态只追加写入应用状态目录。
+感谢你的贡献。请先阅读[中文 README](README.md)、[English README](README.en.md)、[架构](docs/architecture.md)、[协议](docs/protocol.md)和 [SECURITY.md](SECURITY.md)。Hua PlanRelay 的核心边界是：工作区数据只读，协作状态只追加写入应用状态目录。
 
 ## 开始开发
 
