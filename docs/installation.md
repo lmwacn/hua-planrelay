@@ -23,6 +23,14 @@ Start a server for one absolute workspace root:
 pnpm dev serve --workspace /absolute/path/to/test-repository
 ```
 
+Generate connection settings without modifying global configuration:
+
+```bash
+hua-planrelay setup --workspace /absolute/path/to/test-repository --json
+```
+
+For Secure MCP Tunnel, first create a tunnel in OpenAI Platform settings, then run `hua-planrelay setup --workspace ... --tunnel-id tunnel_... --json`. The output is an argument vector so paths containing spaces remain unambiguous. Keep the runtime API key in the shell; never place it in the repository or command output.
+
 The built CLI can be invoked as `node dist/hua-planrelay.mjs --help` or through the package binary after packaging. Always check `hua-planrelay --help` because options may evolve before `1.0.0`.
 
 ## Local state
@@ -51,6 +59,7 @@ For Codex, install the local plugin metadata only after reviewing `.codex-plugin
 5. Try `../outside.txt` and a symlink to an outside file; both must fail.
 6. Verify the gateway has no write, shell, commit, or push tool.
 7. Stop the process and confirm the state directory contains no secret or full source dump.
+8. Create a disposable task and use `hua-planrelay status --task <id> --json` to verify the phase and iteration limit.
 
 ## Troubleshooting
 

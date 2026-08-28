@@ -11605,6 +11605,7 @@ function createWorkspace(options2) {
 
 // src/git/index.ts
 import { spawn } from "node:child_process";
+import { createHash } from "node:crypto";
 import { realpath as realpath2 } from "node:fs/promises";
 import path from "node:path";
 var DEFAULT_GIT_TIMEOUT_MS = 15e3;
@@ -11708,6 +11709,40 @@ var GitReader = class {
     const records = parseStatus(result2.stdout).filter((entry) => this.isAllowed(entry.path) && (!entry.originalPath || this.isAllowed(entry.originalPath)));
     const page = paginateItems(records, cursor2, maxBytes, (entry) => JSON.stringify(entry));
     return { items: page.items, nextCursor: page.nextCursor, hasMore: page.hasMore };
+  }
+  /** Create a stable digest of the allowed repository state without exposing content. */
+  async evidence(baseCommit2) {
+    const info = await this.info();
+    if (!info.isRepo) {
+      const empty = createHash("sha256").update("").digest("hex");
+      return { baseCommit: null, headCommit: null, diffDigest: empty, statusDigest: empty };
+    }
+    if (baseCommit2 && !/^[0-9a-f]{7,64}$/i.test(baseCommit2)) throw new Error("baseCommit is invalid");
+    if (baseCommit2) {
+      const verified = await this.run(["cat-file", "-e", `${baseCommit2}^{commit}`], { allowFailure: true });
+      if (verified.exitCode !== 0) throw new Error("baseCommit is not available in this repository");
+    }
+    const statusResult = await this.run(["status", "--porcelain=v1", "-z", "--untracked-files=all", "--", "."]);
+    const status = parseStatus(statusResult.stdout).filter((entry) => this.isAllowed(entry.path) && (!entry.originalPath || this.isAllowed(entry.originalPath))).sort((a, b) => a.path.localeCompare(b.path));
+    const baseline = baseCommit2 ?? "HEAD";
+    const namesResult = await this.run(["diff", baseline, "--name-only", "-z", "--", "."]);
+    const names = namesResult.stdout.split("\0").filter(Boolean).filter((name) => this.isAllowed(name)).sort();
+    const diff = names.length === 0 ? "" : (await this.run([
+      "diff",
+      baseline,
+      "--no-ext-diff",
+      "--no-textconv",
+      "--no-color",
+      "--unified=3",
+      "--",
+      ...names
+    ])).stdout;
+    return {
+      baseCommit: baseCommit2,
+      headCommit: info.head,
+      diffDigest: createHash("sha256").update(diff).digest("hex"),
+      statusDigest: createHash("sha256").update(JSON.stringify(status)).digest("hex")
+    };
   }
   async diff(cursorOrOptions = "0", maxBytes = DEFAULT_PAGE_BYTES, options2 = {}) {
     const request = typeof cursorOrOptions === "string" ? options2 : cursorOrOptions;
@@ -11844,7 +11879,7 @@ function paginateItems(items, cursor2, maxBytes, serialize) {
 }
 
 // src/coordination/index.ts
-import { createHash, createHmac, randomBytes } from "node:crypto";
+import { createHash as createHash2, createHmac, randomBytes } from "node:crypto";
 import { constants as constants2 } from "node:fs";
 import { chmod, lstat as lstat2, mkdir, open as open2, readFile, readdir as readdir2, realpath as realpath3, link, unlink } from "node:fs/promises";
 import os from "node:os";
@@ -15907,7 +15942,8 @@ var TaskRecordSchema = external_exports.object({
   ...baseFields,
   type: external_exports.literal("task"),
   title: external_exports.string().min(1).max(512),
-  prompt: external_exports.string().min(1).max(MAX_TEXT)
+  prompt: external_exports.string().min(1).max(MAX_TEXT),
+  maxIterations: external_exports.number().int().min(1).max(20).default(3)
 }).strict();
 var PlanStepSchema = external_exports.object({
   id: external_exports.string().regex(ID),
@@ -15928,12 +15964,20 @@ var FindingSchema = external_exports.object({
   detail: external_exports.string().max(MAX_TEXT),
   path: external_exports.string().max(1024).nullable().default(null)
 }).strict();
+var EvidenceSchema = external_exports.object({
+  baseCommit: external_exports.string().regex(COMMIT).nullable(),
+  headCommit: external_exports.string().regex(COMMIT).nullable(),
+  diffDigest: external_exports.string().regex(/^[0-9a-f]{64}$/),
+  statusDigest: external_exports.string().regex(/^[0-9a-f]{64}$/),
+  testsDigest: external_exports.string().regex(/^[0-9a-f]{64}$/)
+}).strict();
 var ReviewRecordSchema = external_exports.object({
   ...baseFields,
   type: external_exports.literal("review"),
   verdict: external_exports.enum(["approved", "changes_requested", "blocked"]),
   summary: external_exports.string().max(MAX_TEXT),
-  findings: external_exports.array(FindingSchema).max(100)
+  findings: external_exports.array(FindingSchema).max(100),
+  evidence: EvidenceSchema.optional()
 }).strict();
 var CoordinationError = class extends Error {
   constructor(message) {
@@ -15954,7 +15998,7 @@ var CoordinationStore = class {
   constructor(options2) {
     this.workspaceRoot = path2.resolve(options2.workspaceRoot);
     this.stateDir = path2.resolve(options2.stateDir ?? defaultStateDir());
-    this.workspaceId = createHash("sha256").update(this.workspaceRoot).digest("hex");
+    this.workspaceId = createHash2("sha256").update(this.workspaceRoot).digest("hex");
     this.ready = this.initialize();
   }
   async initialize() {
@@ -16047,7 +16091,7 @@ function now() {
   return Math.floor(Date.now() / 1e3);
 }
 function identityHash(kind, taskId2, iteration, idempotency) {
-  return createHash("sha256").update(`${kind}\0${taskId2}\0${iteration}\0${idempotency}`).digest("hex");
+  return createHash2("sha256").update(`${kind}\0${taskId2}\0${iteration}\0${idempotency}`).digest("hex");
 }
 function isWithin3(root, candidate) {
   const relative2 = path2.relative(root, candidate);
@@ -16138,7 +16182,7 @@ function isAlreadyExists(error2) {
 }
 
 // src/mcp/execution.ts
-import { createHash as createHash2 } from "node:crypto";
+import { createHash as createHash3 } from "node:crypto";
 import { chmod as chmod2, link as link2, mkdir as mkdir2, open as open3, readFile as readFile2, readdir as readdir3, unlink as unlink2 } from "node:fs/promises";
 import path3 from "node:path";
 var ExecutionSchema = external_exports.object({
@@ -16148,10 +16192,17 @@ var ExecutionSchema = external_exports.object({
   changedFiles: external_exports.array(external_exports.string().max(1024)).max(100),
   tests: external_exports.string().max(64 * 1024),
   createdAt: external_exports.number().int().positive(),
-  idempotency: external_exports.string().regex(/^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/)
+  idempotency: external_exports.string().regex(/^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/),
+  evidence: external_exports.object({
+    baseCommit: external_exports.string().regex(/^[0-9a-f]{7,64}$/i).nullable(),
+    headCommit: external_exports.string().regex(/^[0-9a-f]{7,64}$/i).nullable(),
+    diffDigest: external_exports.string().regex(/^[0-9a-f]{64}$/),
+    statusDigest: external_exports.string().regex(/^[0-9a-f]{64}$/),
+    testsDigest: external_exports.string().regex(/^[0-9a-f]{64}$/)
+  }).strict()
 }).strict();
 function fileKey(idempotency) {
-  return createHash2("sha256").update(idempotency).digest("hex");
+  return createHash3("sha256").update(idempotency).digest("hex");
 }
 async function executionDirectory(workspaceRoot2, stateDir) {
   const store = new CoordinationStore({ workspaceRoot: workspaceRoot2, stateDir });
@@ -16189,7 +16240,14 @@ async function appendJson(file, value) {
 }
 async function recordExecution(workspaceRoot2, record2, stateDir) {
   const idempotency = record2.idempotency ?? `execution-${record2.taskId}-${record2.iteration}`;
-  const value = ExecutionSchema.parse({ ...record2, idempotency, createdAt: record2.createdAt ?? Math.floor(Date.now() / 1e3) });
+  const store = new CoordinationStore({ workspaceRoot: workspaceRoot2, stateDir });
+  const tasks = await store.list("task", { task_id: record2.taskId });
+  const task = tasks.at(-1);
+  if (!task || task.type !== "task") throw new Error("execution requires an existing task");
+  if (record2.iteration >= task.maxIterations) throw new Error(`iteration limit reached (${task.maxIterations})`);
+  const gitEvidence = await new GitReader({ workspaceRoot: workspaceRoot2 }).evidence(task.baseCommit);
+  const evidence2 = { ...gitEvidence, testsDigest: createHash3("sha256").update(record2.tests).digest("hex") };
+  const value = ExecutionSchema.parse({ ...record2, evidence: evidence2, idempotency, createdAt: record2.createdAt ?? Math.floor(Date.now() / 1e3) });
   const directory = await executionDirectory(workspaceRoot2, stateDir);
   return appendJson(path3.join(directory, `${fileKey(idempotency)}.json`), value);
 }
@@ -16207,6 +16265,54 @@ async function readExecution(workspaceRoot2, filter = {}, stateDir) {
   }
   values.sort((a, b) => b.createdAt - a.createdAt);
   return values[0] ?? null;
+}
+
+// src/workflow/index.ts
+async function workflowStatus(workspaceRoot2, taskId2, stateDir) {
+  const store = new CoordinationStore({ workspaceRoot: workspaceRoot2, stateDir });
+  const all = await store.list(void 0, { task_id: taskId2 });
+  const tasks = all.filter((record2) => record2.type === "task");
+  const task = tasks.at(-1);
+  if (!task) return null;
+  const plans = all.filter((record2) => record2.type === "plan" && record2.task_id === task.task_id);
+  const reviews = all.filter((record2) => record2.type === "review" && record2.task_id === task.task_id);
+  const executions = [];
+  for (let iteration2 = 0; iteration2 < task.maxIterations; iteration2 += 1) {
+    const value = await readExecution(workspaceRoot2, { taskId: task.task_id, iteration: iteration2 }, stateDir);
+    if (value) executions.push(value);
+  }
+  const iteration = Math.max(0, ...plans.map((record2) => record2.iteration), ...reviews.map((record2) => record2.iteration), ...executions.map((record2) => record2.iteration));
+  const planAvailable = plans.some((record2) => record2.iteration === iteration);
+  const execution = executions.filter((record2) => record2.iteration === iteration).at(-1) ?? null;
+  const review = reviews.filter((record2) => record2.iteration === iteration).at(-1) ?? null;
+  let phase;
+  let nextAction;
+  if (review?.verdict === "approved") {
+    phase = "done";
+    nextAction = "\u4EFB\u52A1\u5DF2\u901A\u8FC7\u5BA1\u67E5\u3002";
+  } else if (review?.verdict === "blocked") {
+    phase = "blocked";
+    nextAction = "\u5411\u7528\u6237\u8BF4\u660E\u963B\u585E\u539F\u56E0\u5E76\u8BF7\u6C42\u51B3\u5B9A\u3002";
+  } else if (review?.verdict === "changes_requested" && iteration + 1 >= task.maxIterations) {
+    phase = "iteration_limit_reached";
+    nextAction = "\u5DF2\u8FBE\u5230\u8FED\u4EE3\u4E0A\u9650\uFF1B\u83B7\u5F97\u7528\u6237\u786E\u8BA4\u540E\u624D\u80FD\u7EE7\u7EED\u3002";
+  } else if (review?.verdict === "changes_requested") {
+    phase = "changes_requested";
+    nextAction = `\u6309\u5BA1\u67E5\u610F\u89C1\u4FEE\u6539\uFF0C\u5E76\u8BB0\u5F55\u7B2C ${iteration + 1} \u6B21\u6267\u884C\u3002`;
+  } else if (execution?.status === "failed") {
+    phase = "execution_failed";
+    nextAction = "\u4FEE\u590D\u6267\u884C\u5931\u8D25\uFF0C\u6216\u5C06\u4EFB\u52A1\u6807\u8BB0\u4E3A\u963B\u585E\u3002";
+  } else if (execution?.status === "ok") {
+    phase = "awaiting_review";
+    nextAction = "\u8BF7\u6C42 Sol \u6309\u5DF2\u7ED1\u5B9A\u8BC1\u636E\u8FDB\u884C\u72EC\u7ACB\u5BA1\u67E5\u3002";
+  } else if (!planAvailable) {
+    phase = "awaiting_plan";
+    nextAction = `\u8BF7\u6C42\u89C4\u5212\u7B2C ${iteration} \u6B21\u8FED\u4EE3\u3002`;
+  } else {
+    phase = "ready_to_execute";
+    nextAction = "\u5728 Codex \u4E2D\u6267\u884C\u5DF2\u63A5\u53D7\u7684\u8BA1\u5212\u3002";
+  }
+  return { task, phase, iteration, maxIterations: task.maxIterations, planAvailable, execution, review, nextAction };
 }
 
 // src/transport/http.ts
@@ -28352,7 +28458,7 @@ import { basename } from "node:path";
 
 // src/version.ts
 var NAME = "hua-planrelay";
-var VERSION = "0.1.1";
+var VERSION = "0.2.0";
 
 // src/mcp/server.ts
 var cursor = external_exports.string().regex(/^[A-Za-z0-9_-]*$/).max(200).optional();
@@ -28379,6 +28485,8 @@ var finding = external_exports.object({
   detail: external_exports.string().max(64 * 1024),
   path: workspacePath.nullable().default(null)
 }).strict();
+var digest = external_exports.string().regex(/^[0-9a-f]{64}$/);
+var evidence = external_exports.object({ baseCommit, headCommit: baseCommit, diffDigest: digest, statusDigest: digest, testsDigest: digest }).strict();
 var infoOutput = external_exports.object({ workspaceName: external_exports.string(), rootAlias: external_exports.literal("workspace://bound"), trackedFilesOnly: external_exports.boolean(), git: external_exports.object({ isRepo: external_exports.boolean(), root: external_exports.literal("workspace://git-root").nullable(), branch: external_exports.string().nullable(), head: external_exports.string().nullable() }).strict() }).strict();
 var listOutput = external_exports.object({ path: external_exports.string(), entries: external_exports.array(external_exports.object({ path: external_exports.string(), name: external_exports.string(), kind: external_exports.enum(["file", "directory"]), size: external_exports.number().nonnegative().optional() }).strict()), hasMore: external_exports.boolean(), nextCursor: external_exports.string().optional() }).strict();
 var readOutput = external_exports.object({ path: external_exports.string(), content: external_exports.string(), startLine: external_exports.number(), endLine: external_exports.number(), totalLines: external_exports.number(), truncated: external_exports.boolean(), bytes: external_exports.number() }).strict();
@@ -28386,12 +28494,13 @@ var searchOutput = external_exports.object({ query: external_exports.string(), m
 var statusOutput = external_exports.object({ items: external_exports.array(external_exports.object({ path: external_exports.string(), index: external_exports.string(), worktree: external_exports.string(), originalPath: external_exports.string().optional() }).strict()), nextCursor: external_exports.string().nullable(), hasMore: external_exports.boolean() }).strict();
 var diffOutput = external_exports.object({ text: external_exports.string(), nextCursor: external_exports.string().nullable(), hasMore: external_exports.boolean() }).strict();
 var recordBaseOutput = { version: external_exports.literal(1), task_id: taskId, iteration: external_exports.number().int().nonnegative(), baseCommit, idempotency: taskId, createdAt: external_exports.number().int().positive() };
-var taskOutput = external_exports.object({ ...recordBaseOutput, type: external_exports.literal("task"), title: external_exports.string(), prompt: external_exports.string() }).strict();
+var taskOutput = external_exports.object({ ...recordBaseOutput, type: external_exports.literal("task"), title: external_exports.string(), prompt: external_exports.string(), maxIterations: external_exports.number().int().min(1).max(20) }).strict();
 var planOutput = external_exports.object({ ...recordBaseOutput, type: external_exports.literal("plan"), steps: external_exports.array(planStep), summary: external_exports.string() }).strict();
-var reviewOutput = external_exports.object({ ...recordBaseOutput, type: external_exports.literal("review"), verdict: external_exports.enum(["approved", "changes_requested", "blocked"]), summary: external_exports.string(), findings: external_exports.array(finding) }).strict();
+var reviewOutput = external_exports.object({ ...recordBaseOutput, type: external_exports.literal("review"), verdict: external_exports.enum(["approved", "changes_requested", "blocked"]), summary: external_exports.string(), findings: external_exports.array(finding), evidence: evidence.optional() }).strict();
 var currentOutput = external_exports.object({ task: taskOutput.nullable(), plans: external_exports.array(planOutput), reviews: external_exports.array(reviewOutput) }).strict();
-var executionOutput = external_exports.object({ taskId, iteration: external_exports.number().int().nonnegative(), status: external_exports.enum(["ok", "failed"]), changedFiles: external_exports.array(external_exports.string().max(1024)), tests: external_exports.string().max(64 * 1024), createdAt: external_exports.number().int().positive(), idempotency: external_exports.string() }).strict();
+var executionOutput = external_exports.object({ taskId, iteration: external_exports.number().int().nonnegative(), status: external_exports.enum(["ok", "failed"]), changedFiles: external_exports.array(external_exports.string().max(1024)), tests: external_exports.string().max(64 * 1024), createdAt: external_exports.number().int().positive(), idempotency: external_exports.string(), evidence }).strict();
 var testOutput = external_exports.object({ available: external_exports.boolean(), record: executionOutput.nullable() }).strict();
+var workflowOutput = external_exports.object({ available: external_exports.boolean(), status: external_exports.object({ task: taskOutput, phase: external_exports.enum(["awaiting_plan", "ready_to_execute", "execution_failed", "awaiting_review", "changes_requested", "done", "blocked", "iteration_limit_reached"]), iteration: external_exports.number().int().nonnegative(), maxIterations: external_exports.number().int().positive(), planAvailable: external_exports.boolean(), execution: executionOutput.nullable(), review: reviewOutput.nullable(), nextAction: external_exports.string() }).strict().nullable() }).strict();
 function result(value, summary) {
   return { structuredContent: value, content: [{ type: "text", text: summary ?? JSON.stringify(value) }] };
 }
@@ -28441,11 +28550,22 @@ function createMcpServer(options2) {
     const record2 = await readExecution(workspace.root, { taskId: task_id, iteration }, stateDir);
     return result({ available: Boolean(record2), record: record2 });
   });
+  server.registerTool("workflow_status", { description: "Return the derived task phase, iteration limit, and next safe action.", inputSchema: external_exports.object({ task_id: taskId.optional() }).strict(), outputSchema: workflowOutput, annotations: readOnlyAnnotations("Read workflow status") }, async ({ task_id }) => {
+    const status = await workflowStatus(workspace.root, task_id, stateDir);
+    return result({ available: Boolean(status), status });
+  });
   server.registerTool("publish_plan", { description: "Append a validated plan record outside the workspace. This never edits files or executes commands.", inputSchema: external_exports.object({ task_id: taskId, iteration: external_exports.number().int().nonnegative().max(1e6), baseCommit, idempotency: taskId, steps: external_exports.array(planStep).min(1).max(100), summary: external_exports.string().max(64 * 1024) }).strict(), outputSchema: planOutput, annotations: appendAnnotations("Publish plan") }, async (input) => {
     const record2 = await coordination.appendPlan(input);
     return result(record2, "Plan appended outside the workspace.");
   });
-  server.registerTool("publish_review", { description: "Append a validated review record outside the workspace. This never edits files or executes commands.", inputSchema: external_exports.object({ task_id: taskId, iteration: external_exports.number().int().nonnegative().max(1e6), baseCommit, idempotency: taskId, verdict: external_exports.enum(["approved", "changes_requested", "blocked"]), summary: external_exports.string().max(64 * 1024), findings: external_exports.array(finding).max(100) }).strict(), outputSchema: reviewOutput, annotations: appendAnnotations("Publish review") }, async (input) => {
+  server.registerTool("publish_review", { description: "Append a review bound to the exact recorded Git and test evidence. This never edits files or executes commands.", inputSchema: external_exports.object({ task_id: taskId, iteration: external_exports.number().int().nonnegative().max(1e6), baseCommit, idempotency: taskId, verdict: external_exports.enum(["approved", "changes_requested", "blocked"]), summary: external_exports.string().max(64 * 1024), findings: external_exports.array(finding).max(100), evidence }).strict(), outputSchema: reviewOutput, annotations: appendAnnotations("Publish review") }, async (input) => {
+    const execution = await readExecution(workspace.root, { taskId: input.task_id, iteration: input.iteration }, stateDir);
+    if (!execution) throw new Error("review requires a recorded execution for the same task and iteration");
+    if (JSON.stringify(execution.evidence) !== JSON.stringify(input.evidence)) throw new Error("review evidence does not match the recorded execution");
+    const currentEvidence = await git.evidence(input.baseCommit);
+    if (currentEvidence.headCommit !== execution.evidence.headCommit || currentEvidence.diffDigest !== execution.evidence.diffDigest || currentEvidence.statusDigest !== execution.evidence.statusDigest) {
+      throw new Error("workspace changed after execution was recorded; record a new execution before review");
+    }
     const record2 = await coordination.appendReview(input);
     return result(record2, "Review appended outside the workspace.");
   });
@@ -28680,6 +28800,10 @@ function print(value, json2 = false) {
   else process.stdout.write(`${JSON.stringify(value, null, 2)}
 `);
 }
+function commandString(executable, args) {
+  const quote = process.platform === "win32" ? (value) => `"${value.replaceAll('"', '\\"')}"` : (value) => `'${value.replaceAll("'", "'\\''")}'`;
+  return [executable, ...args].map(quote).join(" ");
+}
 function common(command) {
   return command.option("--workspace <path>", "workspace root (default: HUA_PLANRELAY_WORKSPACE or current directory)").option("--state-dir <path>", "application state directory").option("--json", "emit JSON");
 }
@@ -28712,6 +28836,31 @@ function buildCli() {
     const git = new GitReader({ workspaceRoot: ws.root });
     print({ ...ws.info(), git: await git.info() }, Boolean(opts.json));
   });
+  const setup = common(program2.command("setup").description("print safe local and Secure MCP Tunnel connection settings")).option("--tunnel-id <id>", "OpenAI Secure MCP Tunnel ID");
+  setup.action(async (_commandOptions, command) => {
+    const opts = options(command);
+    const values = command.opts();
+    const root = workspaceRoot(opts);
+    const bundle = path4.resolve(fileURLToPath(import.meta.url));
+    const developmentSource = bundle.endsWith(".ts");
+    const executable = developmentSource ? "pnpm" : process.execPath;
+    const commandArgs = [...developmentSource ? ["exec", "tsx", bundle] : [bundle], "serve", "--transport", "stdio", "--workspace", root];
+    if (stateDirectory(opts)) commandArgs.push("--state-dir", path4.resolve(stateDirectory(opts)));
+    const tunnelId = values.tunnelId ? String(values.tunnelId) : null;
+    const output = {
+      workspace: root,
+      stateDir: path4.resolve(stateDirectory(opts) || defaultStateDir()),
+      localMcp: { command: executable, args: commandArgs },
+      secureTunnel: tunnelId ? {
+        tunnelId,
+        init: ["tunnel-client", "init", "--sample", "sample_mcp_stdio_local", "--profile", "hua-planrelay", "--tunnel-id", tunnelId, "--mcp-command", commandString(executable, commandArgs)],
+        doctor: ["tunnel-client", "doctor", "--profile", "hua-planrelay", "--explain"],
+        run: ["tunnel-client", "run", "--profile", "hua-planrelay"]
+      } : null,
+      nextSteps: tunnelId ? ["Set CONTROL_PLANE_API_KEY only in your shell.", "Run the displayed init, doctor, and run commands.", "In ChatGPT Developer mode, create a plugin connection using Tunnel and select this tunnel ID."] : ["Use localMcp for a local Codex plugin connection.", "For ChatGPT, create a tunnel in Platform settings, then rerun setup with --tunnel-id."]
+    };
+    print(output, Boolean(opts.json));
+  });
   const doctor = common(program2.command("doctor").description("check local prerequisites and safety defaults"));
   doctor.action(async (_commandOptions, command) => {
     const opts = options(command);
@@ -28740,7 +28889,7 @@ function buildCli() {
     if (checks.some((check2) => !check2.ok)) process.exitCode = 1;
   });
   const task = program2.command("task").description("manage append-only task records");
-  const taskCreate = common(task.command("create").requiredOption("--goal <goal>", "task goal").option("--title <title>", "task title"));
+  const taskCreate = common(task.command("create").requiredOption("--goal <goal>", "task goal").option("--title <title>", "task title").option("--max-iterations <count>", "maximum review iterations", (value) => Number.parseInt(value, 10), 3));
   taskCreate.action(async (_commandOptions, command) => {
     const opts = options(command);
     const values = command.opts();
@@ -28748,7 +28897,7 @@ function buildCli() {
     const git = await new GitReader({ workspaceRoot: root }).info();
     const id = `task-${Date.now().toString(36)}-${randomBytes2(4).toString("hex")}`;
     const store = new CoordinationStore({ workspaceRoot: root, stateDir: stateDirectory(opts) });
-    const record3 = await store.appendTask({ task_id: id, iteration: 0, baseCommit: git.head, idempotency: id, title: values.title || values.goal, prompt: values.goal });
+    const record3 = await store.appendTask({ task_id: id, iteration: 0, baseCommit: git.head, idempotency: id, title: values.title || values.goal, prompt: values.goal, maxIterations: values.maxIterations });
     print(record3, Boolean(opts.json));
   });
   const taskShow = common(task.command("show").requiredOption("--task <task>", "task ID").option("--iteration <iteration>", "iteration", (value) => Number.parseInt(value, 10)));
@@ -28767,6 +28916,12 @@ function buildCli() {
   reviewShow.action(async (_commandOptions, command) => {
     const opts = options(command);
     print((await taskRecords(workspaceRoot(opts), stateDirectory(opts), command.opts().task, command.opts().iteration)).filter((record3) => record3.type === "review"), Boolean(opts.json));
+  });
+  const status = common(program2.command("status").description("show the derived workflow phase and next action").option("--task <task>", "task ID"));
+  status.action(async (_commandOptions, command) => {
+    const opts = options(command);
+    const statusValue = await workflowStatus(workspaceRoot(opts), command.opts().task, stateDirectory(opts));
+    print(statusValue ? { available: true, ...statusValue } : { available: false }, Boolean(opts.json));
   });
   const record2 = common(program2.command("record").requiredOption("--task <task>", "task ID").requiredOption("--iteration <iteration>", "iteration", (value) => Number.parseInt(value, 10)).requiredOption("--status <status>", "ok or failed").option("--changed-files <files>", "comma-separated changed files", "").option("--tests <summary>", "test summary", ""));
   record2.action(async (_commandOptions, command) => {

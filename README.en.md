@@ -1,6 +1,6 @@
 # Hua PlanRelay
 
-[简体中文](README.md) · **English**
+[简体中文（默认）](README.md) · [中文固定链接](README.zh-CN.md) · **English**
 
 > **Sol thinks. Luna coordinates. Codex executes.**
 
@@ -8,7 +8,7 @@ Hua PlanRelay is a local coding-workflow bridge. Luna stays on the Codex side fo
 
 The core idea is inspired by [Codex with ChatGPT](https://github.com/XiaoDuoYa/codex-with-chatgpt). Hua PlanRelay is an independent implementation with an explicit distinction between current capabilities and the intended end-state workflow.
 
-> **Status:** `0.1.x` implements the secure local read-only bridge, CLI, plugin, and plan/review protocol. “Luna automatically operates Sol in the browser” remains a product direction, not a capability already delivered by this release.
+> **Status:** `0.2.x` adds evidence-bound reviews, a bounded workflow state machine, setup/status commands, and a Skill that can assist with Sol browser handoffs after explicit user consent. The Codex environment supplies browser control; the gateway never bypasses login or account permissions.
 
 ## The problem it addresses
 
@@ -58,16 +58,17 @@ This is not a free-quota converter, and it cannot guarantee lower total usage. W
 - **Data plane:** read-only access to one bound workspace; there are no write, shell, commit, or push tools.
 - **Control plane:** plans, execution summaries, and reviews are append-only records outside the repository.
 - **Review loop:** Sol can inspect the real diff and test summary before approving, requesting changes, or blocking.
-- **Browser boundary:** V1 uses a user-mediated browser handoff. Future Luna-driven browser assistance must require explicit user authorization and preserve login, CAPTCHA, and external-action boundaries.
+- **Browser boundary:** manual handoff remains available. When the Codex environment provides browser control and the user explicitly authorizes it for the current request, the Skill may send one planning or review prompt. Login, CAPTCHA, 2FA, model availability, and sensitive actions remain with the user.
 
 ## What exists today
 
-| Implemented in `0.1.x` | Product direction |
+| Implemented in `0.2.x` | Deployment responsibility |
 | --- | --- |
-| 10 workspace, Git, task, plan, and review MCP tools | user-authorized Luna assistance for the browser/Sol handoff |
-| stdio and loopback-only HTTP transports | stable HTTPS, OAuth, and revocable remote connections |
-| traversal, symlink, sensitive-path, and size controls | a more complete one-paste setup and visual status experience |
-| Codex plugin, Skill, CLI, and append-only state | diff/test evidence digests and stronger review binding |
+| 11 workspace, Git, workflow, plan, and review MCP tools | stable HTTPS, OAuth, and operations for public distribution |
+| stdio, loopback HTTP, and Secure MCP Tunnel setup output | create and operate the tunnel in the correct OpenAI org/workspace |
+| traversal, symlink, sensitive-path, and size controls | account, workspace, and data governance for the deployment |
+| browser-assisted Skill with explicit consent and iteration limits | user handles login, CAPTCHA, 2FA, and model availability |
+| Git/status/test evidence binding with stale-state rejection | multi-tenant authentication if public hosting is required |
 
 Read [the architecture](docs/architecture.md), [protocol](docs/protocol.md), and [threat model](docs/threat-model.md) before using it with sensitive work.
 
@@ -107,7 +108,7 @@ Never place tokens, state logs, or local configuration inside the repository. Se
 
 ## Shortest working flow
 
-The current release is not a “paste one sentence and let it control the browser” system. It provides an inspectable workflow that can be connected step by step:
+`0.2.x` supports both manual and explicitly authorized browser-assisted handoffs:
 
 1. Create a task for the local project:
 
@@ -118,13 +119,11 @@ The current release is not a “paste one sentence and let it control the browse
      --json
    ```
 
-2. Start the read-only gateway and connect the plugin as described in [installation](docs/installation.md). Prefer OpenAI Secure MCP Tunnel when the web client must reach the local gateway.
-3. In ChatGPT in the browser, select Sol when it is available to the account and send: `Plan the current Hua PlanRelay task.`
+2. Run `hua-planrelay setup --workspace /absolute/path/to/project --json` for local MCP settings. Add `--tunnel-id <id>` to receive Secure MCP Tunnel arguments.
+3. Send the planning prompt manually, or explicitly authorize Codex with the Hua PlanRelay Skill to assist in the browser. The Skill verifies visible Sol availability and never enters login credentials, codes, or keys.
 4. Luna / Codex reads the plan, edits locally, runs tests, and records a structured execution summary.
-5. In the same browser conversation, send: `Review the current Hua PlanRelay task.` Sol inspects the real diff and test summary through MCP.
-6. Apply findings until the result is approved or genuinely blocked.
-
-In the intended end state, Luna can assist with steps 3 and 5 after explicit user authorization. Login, CAPTCHA, two-factor authentication, and other external actions remain with the user.
+5. Request review manually or with consent. Sol must return the evidence object from `test_summary`; the gateway also rejects a review if Git changed after execution was recorded.
+6. Run `hua-planrelay status --workspace ... --task ... --json` and follow its next action. Stop on approval, a real block, or the iteration limit.
 
 ## ChatGPT/Codex connection
 
@@ -153,10 +152,11 @@ The initial read-only tools are intentionally small:
 | `git_diff` | bounded diff | changed hunks, filtered |
 | `test_summary` | recorded/explicit test summary | summary only |
 | `current_task` | read the latest task, plans, and reviews | records only |
+| `workflow_status` | derived phase, iteration limit, and next action | records only |
 | `publish_plan` | append a validated plan outside the workspace | no workspace write |
 | `publish_review` | append a validated review outside the workspace | no workspace write |
 
-The coordination tools are restricted to validated append-only records. They must not accept shell commands or arbitrary file paths. `publish_plan` and `publish_review` require a previously recorded task and matching base commit; the CLI/state adapter is responsible for creating the task record.
+The coordination tools are restricted to validated append-only records. They must not accept shell commands or arbitrary file paths. `publish_plan` and `publish_review` require a previously recorded task and matching base commit. Reviews must also match the execution evidence and current Git state.
 
 All tool inputs and outputs must be schema-validated, bounded, and annotated. A model-readable result is evidence, not permission to edit or execute. The current MCP implementation is the source of truth; this table describes the contract we intend to preserve.
 

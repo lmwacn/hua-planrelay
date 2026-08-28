@@ -1,4 +1,5 @@
 import { spawn } from "node:child_process";
+import { createHash } from "node:crypto";
 import { realpath } from "node:fs/promises";
 import path from "node:path";
 
@@ -30,6 +31,12 @@ export type Page<T> = {
 export type TextPage = Page<string>;
 export type DiffMode = "unstaged" | "staged" | "head";
 export type DiffOptions = { mode?: DiffMode; path?: string; cursor?: string; maxBytes?: number };
+export type GitEvidence = {
+  baseCommit: string | null;
+  headCommit: string | null;
+  diffDigest: string;
+  statusDigest: string;
+};
 
 export class GitCommandError extends Error {
   readonly command: string[];
@@ -169,6 +176,36 @@ export class GitReader {
     const records = parseStatus(result.stdout).filter((entry) => this.isAllowed(entry.path) && (!entry.originalPath || this.isAllowed(entry.originalPath)));
     const page = paginateItems(records, cursor, maxBytes, (entry) => JSON.stringify(entry));
     return { items: page.items, nextCursor: page.nextCursor, hasMore: page.hasMore };
+  }
+
+  /** Create a stable digest of the allowed repository state without exposing content. */
+  async evidence(baseCommit: string | null): Promise<GitEvidence> {
+    const info = await this.info();
+    if (!info.isRepo) {
+      const empty = createHash("sha256").update("").digest("hex");
+      return { baseCommit: null, headCommit: null, diffDigest: empty, statusDigest: empty };
+    }
+    if (baseCommit && !/^[0-9a-f]{7,64}$/i.test(baseCommit)) throw new Error("baseCommit is invalid");
+    if (baseCommit) {
+      const verified = await this.run(["cat-file", "-e", `${baseCommit}^{commit}`], { allowFailure: true });
+      if (verified.exitCode !== 0) throw new Error("baseCommit is not available in this repository");
+    }
+    const statusResult = await this.run(["status", "--porcelain=v1", "-z", "--untracked-files=all", "--", "."]);
+    const status = parseStatus(statusResult.stdout)
+      .filter((entry) => this.isAllowed(entry.path) && (!entry.originalPath || this.isAllowed(entry.originalPath)))
+      .sort((a, b) => a.path.localeCompare(b.path));
+    const baseline = baseCommit ?? "HEAD";
+    const namesResult = await this.run(["diff", baseline, "--name-only", "-z", "--", "."]);
+    const names = namesResult.stdout.split("\0").filter(Boolean).filter((name) => this.isAllowed(name)).sort();
+    const diff = names.length === 0 ? "" : (await this.run([
+      "diff", baseline, "--no-ext-diff", "--no-textconv", "--no-color", "--unified=3", "--", ...names,
+    ])).stdout;
+    return {
+      baseCommit,
+      headCommit: info.head,
+      diffDigest: createHash("sha256").update(diff).digest("hex"),
+      statusDigest: createHash("sha256").update(JSON.stringify(status)).digest("hex"),
+    };
   }
 
   async diff(cursorOrOptions: string | DiffOptions = "0", maxBytes = DEFAULT_PAGE_BYTES, options: DiffOptions = {}): Promise<TextPage> {

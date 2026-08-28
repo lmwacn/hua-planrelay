@@ -6,6 +6,7 @@ import { GitReader } from "../git/index.js";
 import { CoordinationStore, type PlanInput, type ReviewInput } from "../coordination/index.js";
 import { Workspace, normalizedRelative } from "../workspace/index.js";
 import { readExecution } from "./execution.js";
+import { workflowStatus } from "../workflow/index.js";
 
 export type PlanRelayServerOptions = {
   workspaceRoot: string;
@@ -31,6 +32,8 @@ const finding = z.object({
   detail: z.string().max(64 * 1024),
   path: workspacePath.nullable().default(null),
 }).strict();
+const digest = z.string().regex(/^[0-9a-f]{64}$/);
+const evidence = z.object({ baseCommit, headCommit: baseCommit, diffDigest: digest, statusDigest: digest, testsDigest: digest }).strict();
 
 const infoOutput = z.object({ workspaceName: z.string(), rootAlias: z.literal("workspace://bound"), trackedFilesOnly: z.boolean(), git: z.object({ isRepo: z.boolean(), root: z.literal("workspace://git-root").nullable(), branch: z.string().nullable(), head: z.string().nullable() }).strict() }).strict();
 const listOutput = z.object({ path: z.string(), entries: z.array(z.object({ path: z.string(), name: z.string(), kind: z.enum(["file", "directory"]), size: z.number().nonnegative().optional() }).strict()), hasMore: z.boolean(), nextCursor: z.string().optional() }).strict();
@@ -39,12 +42,13 @@ const searchOutput = z.object({ query: z.string(), matches: z.array(z.object({ p
 const statusOutput = z.object({ items: z.array(z.object({ path: z.string(), index: z.string(), worktree: z.string(), originalPath: z.string().optional() }).strict()), nextCursor: z.string().nullable(), hasMore: z.boolean() }).strict();
 const diffOutput = z.object({ text: z.string(), nextCursor: z.string().nullable(), hasMore: z.boolean() }).strict();
 const recordBaseOutput = { version: z.literal(1), task_id: taskId, iteration: z.number().int().nonnegative(), baseCommit: baseCommit, idempotency: taskId, createdAt: z.number().int().positive() };
-const taskOutput = z.object({ ...recordBaseOutput, type: z.literal("task"), title: z.string(), prompt: z.string() }).strict();
+const taskOutput = z.object({ ...recordBaseOutput, type: z.literal("task"), title: z.string(), prompt: z.string(), maxIterations: z.number().int().min(1).max(20) }).strict();
 const planOutput = z.object({ ...recordBaseOutput, type: z.literal("plan"), steps: z.array(planStep), summary: z.string() }).strict();
-const reviewOutput = z.object({ ...recordBaseOutput, type: z.literal("review"), verdict: z.enum(["approved", "changes_requested", "blocked"]), summary: z.string(), findings: z.array(finding) }).strict();
+const reviewOutput = z.object({ ...recordBaseOutput, type: z.literal("review"), verdict: z.enum(["approved", "changes_requested", "blocked"]), summary: z.string(), findings: z.array(finding), evidence: evidence.optional() }).strict();
 const currentOutput = z.object({ task: taskOutput.nullable(), plans: z.array(planOutput), reviews: z.array(reviewOutput) }).strict();
-const executionOutput = z.object({ taskId, iteration: z.number().int().nonnegative(), status: z.enum(["ok", "failed"]), changedFiles: z.array(z.string().max(1024)), tests: z.string().max(64 * 1024), createdAt: z.number().int().positive(), idempotency: z.string() }).strict();
+const executionOutput = z.object({ taskId, iteration: z.number().int().nonnegative(), status: z.enum(["ok", "failed"]), changedFiles: z.array(z.string().max(1024)), tests: z.string().max(64 * 1024), createdAt: z.number().int().positive(), idempotency: z.string(), evidence }).strict();
 const testOutput = z.object({ available: z.boolean(), record: executionOutput.nullable() }).strict();
+const workflowOutput = z.object({ available: z.boolean(), status: z.object({ task: taskOutput, phase: z.enum(["awaiting_plan", "ready_to_execute", "execution_failed", "awaiting_review", "changes_requested", "done", "blocked", "iteration_limit_reached"]), iteration: z.number().int().nonnegative(), maxIterations: z.number().int().positive(), planAvailable: z.boolean(), execution: executionOutput.nullable(), review: reviewOutput.nullable(), nextAction: z.string() }).strict().nullable() }).strict();
 
 function result(value: object, summary?: string) {
   return { structuredContent: value as Record<string, unknown>, content: [{ type: "text" as const, text: summary ?? JSON.stringify(value) }] };
@@ -98,11 +102,22 @@ export function createMcpServer(options: PlanRelayServerOptions): McpServer {
     const record = await readExecution(workspace.root, { taskId: task_id, iteration }, stateDir);
     return result({ available: Boolean(record), record });
   });
+  server.registerTool("workflow_status", { description: "Return the derived task phase, iteration limit, and next safe action.", inputSchema: z.object({ task_id: taskId.optional() }).strict(), outputSchema: workflowOutput, annotations: readOnlyAnnotations("Read workflow status") }, async ({ task_id }) => {
+    const status = await workflowStatus(workspace.root, task_id, stateDir);
+    return result({ available: Boolean(status), status });
+  });
   server.registerTool("publish_plan", { description: "Append a validated plan record outside the workspace. This never edits files or executes commands.", inputSchema: z.object({ task_id: taskId, iteration: z.number().int().nonnegative().max(1_000_000), baseCommit, idempotency: taskId, steps: z.array(planStep).min(1).max(100), summary: z.string().max(64 * 1024) }).strict(), outputSchema: planOutput, annotations: appendAnnotations("Publish plan") }, async (input) => {
     const record = await coordination.appendPlan(input as PlanInput);
     return result(record as unknown as Record<string, unknown>, "Plan appended outside the workspace.");
   });
-  server.registerTool("publish_review", { description: "Append a validated review record outside the workspace. This never edits files or executes commands.", inputSchema: z.object({ task_id: taskId, iteration: z.number().int().nonnegative().max(1_000_000), baseCommit, idempotency: taskId, verdict: z.enum(["approved", "changes_requested", "blocked"]), summary: z.string().max(64 * 1024), findings: z.array(finding).max(100) }).strict(), outputSchema: reviewOutput, annotations: appendAnnotations("Publish review") }, async (input) => {
+  server.registerTool("publish_review", { description: "Append a review bound to the exact recorded Git and test evidence. This never edits files or executes commands.", inputSchema: z.object({ task_id: taskId, iteration: z.number().int().nonnegative().max(1_000_000), baseCommit, idempotency: taskId, verdict: z.enum(["approved", "changes_requested", "blocked"]), summary: z.string().max(64 * 1024), findings: z.array(finding).max(100), evidence }).strict(), outputSchema: reviewOutput, annotations: appendAnnotations("Publish review") }, async (input) => {
+    const execution = await readExecution(workspace.root, { taskId: input.task_id, iteration: input.iteration }, stateDir);
+    if (!execution) throw new Error("review requires a recorded execution for the same task and iteration");
+    if (JSON.stringify(execution.evidence) !== JSON.stringify(input.evidence)) throw new Error("review evidence does not match the recorded execution");
+    const currentEvidence = await git.evidence(input.baseCommit);
+    if (currentEvidence.headCommit !== execution.evidence.headCommit || currentEvidence.diffDigest !== execution.evidence.diffDigest || currentEvidence.statusDigest !== execution.evidence.statusDigest) {
+      throw new Error("workspace changed after execution was recorded; record a new execution before review");
+    }
     const record = await coordination.appendReview(input as ReviewInput);
     return result(record as unknown as Record<string, unknown>, "Review appended outside the workspace.");
   });

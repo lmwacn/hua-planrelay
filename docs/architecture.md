@@ -48,7 +48,9 @@ INIT → CONTEXT_READY → PLAN_PUBLISHED → EXECUTING → REVIEW_READY → DON
                          └────────────── BLOCKED ◄──────────┘
 ```
 
-Transitions are append-only events and should be idempotent by event ID. In V1, checking current Git status/diff and test evidence is a required review procedure, not a cryptographic record binding; “tests pass” without checking available evidence is not a completed review.
+The `workflow_status` tool and `status` CLI derive these phases from append-only records. Each task has a 1–20 iteration limit (default 3). Execution records bind the task base commit, current head, filtered diff/status SHA-256 digests, and test-summary digest. `publish_review` requires the exact evidence object and rejects it when the current Git state no longer matches.
+
+Browser assistance is an orchestration behavior in the Codex Skill, not an execution capability in the MCP gateway. It is available only when the host exposes browser control and the user explicitly authorizes it for the current request. The Skill sends one bounded prompt per plan/review stage and stops for authentication, CAPTCHA, 2FA, unavailable Sol, blocks, or the iteration limit.
 
 ## Non-goals
 

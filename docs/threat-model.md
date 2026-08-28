@@ -29,7 +29,7 @@ Assumptions: the host OS and Node runtime are maintained; the user understands t
 | Threat | Example | Required control | Residual risk |
 | --- | --- | --- | --- |
 | Spoofing | stolen bearer token calls another workspace | PKCE/OAuth, token audience and workspace binding, short expiry, rotation, revoke | host/browser malware can steal a live session |
-| Tampering | model submits a fake review or replayed plan | schema validation, record IDs, base-commit binding, idempotency, append-only storage | V1 has no evidence digest; the operator may trust a stale or misleading review |
+| Tampering | model submits a fake/stale review or replayed plan | schema validation, IDs, base-commit and execution-evidence binding, current Git recheck, idempotency, append-only storage | digests establish state identity, not review quality |
 | Repudiation | no record of what was reviewed | append-only task/plan/review records; V1 deliberately has no general audit log | coordination records are not a complete or legal audit trail |
 | Information disclosure | `.env`, SSH key, or proprietary file returned | built-in denylist, tracked-file default, path guard, byte/line limits, explicit disclosure | secrets embedded in ordinary source can still be returned; V1 has no content redactor |
 | Denial of service | huge diff or catastrophic search pattern | timeouts, pagination, max bytes/results, safe search engine, rate limits | local CPU/memory pressure remains possible |
@@ -45,7 +45,8 @@ Assumptions: the host OS and Node runtime are maintained; the user understands t
 2. A model request cannot cause the gateway to write, execute, commit, push, or alter permissions.
 3. Coordination records cannot be interpreted as executable instructions by the gateway.
 4. Built-in sensitive paths and absolute state paths do not appear in tool output; secrets embedded in ordinary allowed source remain a disclosed risk.
-5. The state store binds records to a workspace, while task/plan/review records identify a base commit and iteration. V1 does not bind a review to a cryptographic diff or test-evidence digest.
+5. The state store binds records to a workspace. Execution and review records bind filtered Git diff/status and test-summary SHA-256 digests; review publication also recomputes Git evidence to reject stale state.
+6. Browser assistance requires explicit user authorization. The Skill never enters passwords, codes, keys, payment information, or recovery data, and stops at authentication/consent boundaries.
 
 ## Out of scope
 

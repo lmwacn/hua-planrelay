@@ -23,6 +23,8 @@ The goal is to prove the security boundary, not merely that a tool returns a hap
 | Bounds | empty/huge files, long lines, huge diff, deep tree, too many results, invalid pagination, timeout/cancellation |
 | Git | non-repository root, detached HEAD, missing base, binary diff, rename/delete, permission error, hostile filename |
 | Protocol | unknown type/version, malformed JSON, duplicate ID with changed payload, stale evidence, concurrent append, invalid transition |
+| Workflow | missing plan/execution, approved/blocked verdict, stale Git state, mismatched digest, iteration limit |
+| Browser Skill | no consent, login/CAPTCHA/2FA pause, unavailable Sol, one-message bound, stop states |
 | Auth | missing/expired token, wrong audience/resource, wrong workspace/scope, revoked token, refresh replay, unregistered redirect URI |
 | Injection | README/source asks the model to reveal secrets, follow a URL, run a command, or ignore the system policy |
 | Web | HTML metacharacters in project names/errors, unsafe origin, missing CSP, invalid CORS, oversized request body |

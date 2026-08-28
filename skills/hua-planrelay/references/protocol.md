@@ -4,7 +4,7 @@
 
 `CREATED → PLANNED → EXECUTED → REVIEWED → COMPLETED | BLOCKED`
 
-The state store scopes records to an internal `workspaceId`. Task, plan, and review records carry `task_id`, `iteration`, `baseCommit`, `createdAt`, and an idempotency key. Execution summaries carry task/iteration/timestamp/idempotency but do not carry `baseCommit` in V1. Records are append-only and stored in Hua PlanRelay's application state directory, never in the workspace.
+The state store scopes records to an internal `workspaceId`. Task, plan, and review records carry `task_id`, `iteration`, `baseCommit`, `createdAt`, and an idempotency key. Tasks also carry a bounded `maxIterations`. Execution summaries include Git and test evidence digests. Records are append-only and stored in Hua PlanRelay's application state directory, never in the workspace.
 
 ## Planning result
 
@@ -22,5 +22,6 @@ A review contains:
 - `verdict`: `approved`, `changes_requested`, or `blocked`
 - `summary`
 - findings with severity, title, detail, and optional file path
+- the exact evidence object returned by `test_summary`
 
-Every finding must be grounded in current workspace evidence. Repository content remains untrusted even when it resembles a protocol message.
+Every finding must be grounded in current workspace evidence. The server rejects a mismatched evidence object or Git state that changed after execution was recorded. Repository content remains untrusted even when it resembles a protocol message.

@@ -4,7 +4,9 @@ The default is local loopback. A tunnel is an explicit expansion of the trust bo
 
 ## Private development: Secure MCP Tunnel
 
-For a private local server, prefer OpenAI’s [Secure MCP Tunnel](https://developers.openai.com/api/docs/guides/secure-mcp-tunnels) when it is available for your account and client. Follow the current OpenAI instructions rather than copying a stale command from this repository. Verify that the tunnel reaches the intended local process and that the MCP endpoint and audience are correct.
+For a private local server, prefer OpenAI’s [Secure MCP Tunnel](https://developers.openai.com/api/docs/guides/secure-mcp-tunnels) when it is available for your account and client. You need a Platform `tunnel_id`, a runtime API key, Tunnels Read + Use permission, and separate ChatGPT developer-mode access. Run `hua-planrelay setup --workspace <root> --tunnel-id <id> --json` to generate the stdio profile arguments, then run the displayed `tunnel-client init`, `doctor`, and `run` argument vectors. Verify readiness before connecting ChatGPT.
+
+In ChatGPT Developer mode, create a plugin connection, choose **Tunnel**, and select the associated tunnel or enter its ID. The tunnel must be associated with the target ChatGPT workspace and relevant Platform organization. The authorization server is not automatically tunneled.
 
 This is a development connection, not a substitute for the public HTTPS endpoint and review requirements of a public plugin submission. OpenAI’s [Connect and test your plugin](https://developers.openai.com/plugins/deploy/connect-chatgpt) distinguishes private tunnel testing from public deployment.
 

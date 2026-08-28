@@ -23,6 +23,7 @@ export const TaskRecordSchema = z.object({
   type: z.literal("task"),
   title: z.string().min(1).max(512),
   prompt: z.string().min(1).max(MAX_TEXT),
+  maxIterations: z.number().int().min(1).max(20).default(3),
 }).strict();
 
 const PlanStepSchema = z.object({
@@ -47,12 +48,21 @@ const FindingSchema = z.object({
   path: z.string().max(1024).nullable().default(null),
 }).strict();
 
+export const EvidenceSchema = z.object({
+  baseCommit: z.string().regex(COMMIT).nullable(),
+  headCommit: z.string().regex(COMMIT).nullable(),
+  diffDigest: z.string().regex(/^[0-9a-f]{64}$/),
+  statusDigest: z.string().regex(/^[0-9a-f]{64}$/),
+  testsDigest: z.string().regex(/^[0-9a-f]{64}$/),
+}).strict();
+
 export const ReviewRecordSchema = z.object({
   ...baseFields,
   type: z.literal("review"),
   verdict: z.enum(["approved", "changes_requested", "blocked"]),
   summary: z.string().max(MAX_TEXT),
   findings: z.array(FindingSchema).max(100),
+  evidence: EvidenceSchema.optional(),
 }).strict();
 
 export type TaskRecord = z.infer<typeof TaskRecordSchema>;
@@ -61,7 +71,7 @@ export type ReviewRecord = z.infer<typeof ReviewRecordSchema>;
 export type CoordinationRecord = TaskRecord | PlanRecord | ReviewRecord;
 export type RecordKind = CoordinationRecord["type"];
 
-export type TaskInput = Omit<TaskRecord, "type" | "version" | "createdAt"> & { createdAt?: number };
+export type TaskInput = Omit<TaskRecord, "type" | "version" | "createdAt" | "maxIterations"> & { createdAt?: number; maxIterations?: number };
 export type PlanInput = Omit<PlanRecord, "type" | "version" | "createdAt"> & { createdAt?: number };
 export type ReviewInput = Omit<ReviewRecord, "type" | "version" | "createdAt"> & { createdAt?: number };
 

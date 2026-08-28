@@ -1,5 +1,5 @@
 interface:
   display_name: "Hua PlanRelay"
-  short_description: "让 ChatGPT 只读规划审查，Codex 安全执行。"
+  short_description: "Luna 安全执行，授权后请 Sol 规划与审查。"
   brand_color: "#5B5BD6"
-  default_prompt: "Use $hua-planrelay to plan and review this coding task through the connected workspace."
+  default_prompt: "Use $hua-planrelay to run this coding task with Luna/Codex execution and an explicitly authorized Sol browser handoff."

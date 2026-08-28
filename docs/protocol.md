@@ -24,6 +24,8 @@ Each record is a strict JSON object. Its common fields are:
 
 The workspace binding is held by the store and is not copied into each record. Its identifier is an opaque HMAC-derived value in the application state path; an absolute workspace path must never be used as a public identifier. The current implementation stores one immutable JSON file per identity in the state directory, giving append-only semantics (existing content cannot be overwritten with different content).
 
+A task additionally contains `title`, `prompt`, and `maxIterations`. The limit defaults to 3 and must be between 1 and 20.
+
 ## Plan record
 
 ```json
@@ -59,15 +61,24 @@ The workspace binding is held by the store and is not copied into each record. I
   "summary": "Validation is present; one boundary case remains.",
   "findings": [
     {"severity":"high","title":"Null input is not covered","detail":"Add a regression test and guard","path":"src/http/input.ts"}
-  ]
+  ],
+  "evidence": {
+    "baseCommit": "abc1234",
+    "headCommit": "def5678",
+    "diffDigest": "<64 lowercase hex characters>",
+    "statusDigest": "<64 lowercase hex characters>",
+    "testsDigest": "<64 lowercase hex characters>"
+  }
 }
 ```
 
 Finding and plan paths are descriptive strings and are not authorization. A review may quote a bounded excerpt, but should prefer a reference and digest. Do not put credentials or full files into a record.
 
+Every review published through MCP must include the exact `evidence` object returned by `test_summary`. The server compares it with the recorded execution and recomputes current Git evidence before accepting the review. This detects stale state; it does not prove that a model reasoned correctly about the content.
+
 ## State transitions and concurrency
 
-Tasks establish a base commit; valid operational transitions are `INIT → CONTEXT_READY → PLAN_PUBLISHED → EXECUTING → REVIEW_READY → DONE`; any stage may append `BLOCKED`. A client must use an idempotency key when retrying a publish. The server rejects the same identity with different content, and uses atomic creation so a partial write cannot be read as a valid record.
+Tasks establish a base commit and iteration limit; valid operational transitions are `INIT → CONTEXT_READY → PLAN_PUBLISHED → EXECUTING → REVIEW_READY → DONE`; any stage may append `BLOCKED`. `workflow_status` derives `awaiting_plan`, `ready_to_execute`, `execution_failed`, `awaiting_review`, `changes_requested`, `done`, `blocked`, or `iteration_limit_reached`. A client must use an idempotency key when retrying a publish. The server rejects the same identity with different content, and uses atomic creation so a partial write cannot be read as a valid record.
 
 Two clients can publish concurrently. Consumers order by `(createdAt, type)` for display only; they must never infer authorization from ordering. A stale plan is detected by comparing its recorded `baseCommit` and current Git status/diff before execution.
 

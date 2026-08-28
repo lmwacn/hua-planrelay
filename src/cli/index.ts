@@ -9,6 +9,7 @@ import { createWorkspace } from "../workspace/index.js";
 import { GitReader } from "../git/index.js";
 import { CoordinationStore, defaultStateDir } from "../coordination/index.js";
 import { recordExecution } from "../mcp/execution.js";
+import { workflowStatus } from "../workflow/index.js";
 import { startHttpServer } from "../transport/http.js";
 import { serveStdio } from "../transport/stdio.js";
 import { NAME, VERSION } from "../version.js";
@@ -31,6 +32,13 @@ function print(value: unknown, json = false): void {
   if (json) process.stdout.write(`${JSON.stringify(value)}\n`);
   else if (typeof value === "string") process.stdout.write(`${value}\n`);
   else process.stdout.write(`${JSON.stringify(value, null, 2)}\n`);
+}
+
+function commandString(executable: string, args: string[]): string {
+  const quote = process.platform === "win32"
+    ? (value: string) => `"${value.replaceAll('"', '\\"')}"`
+    : (value: string) => `'${value.replaceAll("'", "'\\''")}'`;
+  return [executable, ...args].map(quote).join(" ");
 }
 
 function common(command: Command): Command {
@@ -72,6 +80,33 @@ export function buildCli(): Command {
     print({ ...ws.info(), git: await git.info() }, Boolean(opts.json));
   });
 
+  const setup = common(program.command("setup").description("print safe local and Secure MCP Tunnel connection settings"))
+    .option("--tunnel-id <id>", "OpenAI Secure MCP Tunnel ID");
+  setup.action(async (_commandOptions: CliOptions, command: Command) => {
+    const opts = options(command); const values = command.opts(); const root = workspaceRoot(opts);
+    const bundle = path.resolve(fileURLToPath(import.meta.url));
+    const developmentSource = bundle.endsWith(".ts");
+    const executable = developmentSource ? "pnpm" : process.execPath;
+    const commandArgs = [...(developmentSource ? ["exec", "tsx", bundle] : [bundle]), "serve", "--transport", "stdio", "--workspace", root];
+    if (stateDirectory(opts)) commandArgs.push("--state-dir", path.resolve(stateDirectory(opts)!));
+    const tunnelId = values.tunnelId ? String(values.tunnelId) : null;
+    const output = {
+      workspace: root,
+      stateDir: path.resolve(stateDirectory(opts) || defaultStateDir()),
+      localMcp: { command: executable, args: commandArgs },
+      secureTunnel: tunnelId ? {
+        tunnelId,
+        init: ["tunnel-client", "init", "--sample", "sample_mcp_stdio_local", "--profile", "hua-planrelay", "--tunnel-id", tunnelId, "--mcp-command", commandString(executable, commandArgs)],
+        doctor: ["tunnel-client", "doctor", "--profile", "hua-planrelay", "--explain"],
+        run: ["tunnel-client", "run", "--profile", "hua-planrelay"],
+      } : null,
+      nextSteps: tunnelId
+        ? ["Set CONTROL_PLANE_API_KEY only in your shell.", "Run the displayed init, doctor, and run commands.", "In ChatGPT Developer mode, create a plugin connection using Tunnel and select this tunnel ID."]
+        : ["Use localMcp for a local Codex plugin connection.", "For ChatGPT, create a tunnel in Platform settings, then rerun setup with --tunnel-id."],
+    };
+    print(output, Boolean(opts.json));
+  });
+
   const doctor = common(program.command("doctor").description("check local prerequisites and safety defaults"));
   doctor.action(async (_commandOptions: CliOptions, command: Command) => {
     const opts = options(command); const root = workspaceRoot(opts); const checks: Array<{ name: string; ok: boolean; detail: string }> = [];
@@ -89,11 +124,11 @@ export function buildCli(): Command {
   });
 
   const task = program.command("task").description("manage append-only task records");
-  const taskCreate = common(task.command("create").requiredOption("--goal <goal>", "task goal").option("--title <title>", "task title"));
+  const taskCreate = common(task.command("create").requiredOption("--goal <goal>", "task goal").option("--title <title>", "task title").option("--max-iterations <count>", "maximum review iterations", (value) => Number.parseInt(value, 10), 3));
   taskCreate.action(async (_commandOptions: CliOptions, command: Command) => {
     const opts = options(command); const values = command.opts(); const root = workspaceRoot(opts); const git = await new GitReader({ workspaceRoot: root }).info(); const id = `task-${Date.now().toString(36)}-${randomBytes(4).toString("hex")}`;
     const store = new CoordinationStore({ workspaceRoot: root, stateDir: stateDirectory(opts) });
-    const record = await store.appendTask({ task_id: id, iteration: 0, baseCommit: git.head, idempotency: id, title: values.title || values.goal, prompt: values.goal });
+    const record = await store.appendTask({ task_id: id, iteration: 0, baseCommit: git.head, idempotency: id, title: values.title || values.goal, prompt: values.goal, maxIterations: values.maxIterations });
     print(record, Boolean(opts.json));
   });
   const taskShow = common(task.command("show").requiredOption("--task <task>", "task ID").option("--iteration <iteration>", "iteration", (value) => Number.parseInt(value, 10)));
@@ -106,6 +141,12 @@ export function buildCli(): Command {
   const review = program.command("review").description("inspect append-only review records");
   const reviewShow = common(review.command("show").requiredOption("--task <task>", "task ID").option("--iteration <iteration>", "iteration", (value) => Number.parseInt(value, 10)));
   reviewShow.action(async (_commandOptions: CliOptions, command: Command) => { const opts = options(command); print((await taskRecords(workspaceRoot(opts), stateDirectory(opts), command.opts().task, command.opts().iteration)).filter((record) => record.type === "review"), Boolean(opts.json)); });
+
+  const status = common(program.command("status").description("show the derived workflow phase and next action").option("--task <task>", "task ID"));
+  status.action(async (_commandOptions: CliOptions, command: Command) => {
+    const opts = options(command); const statusValue = await workflowStatus(workspaceRoot(opts), command.opts().task, stateDirectory(opts));
+    print(statusValue ? { available: true, ...statusValue } : { available: false }, Boolean(opts.json));
+  });
 
   const record = common(program.command("record").requiredOption("--task <task>", "task ID").requiredOption("--iteration <iteration>", "iteration", (value) => Number.parseInt(value, 10)).requiredOption("--status <status>", "ok or failed").option("--changed-files <files>", "comma-separated changed files", "").option("--tests <summary>", "test summary", ""));
   record.action(async (_commandOptions: CliOptions, command: Command) => {

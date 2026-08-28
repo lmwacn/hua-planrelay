@@ -3,6 +3,7 @@ import { chmod, link, mkdir, open, readFile, readdir, unlink } from "node:fs/pro
 import path from "node:path";
 import { z } from "zod";
 import { CoordinationStore } from "../coordination/index.js";
+import { GitReader, type GitEvidence } from "../git/index.js";
 
 export type ExecutionRecord = {
   taskId: string;
@@ -12,6 +13,7 @@ export type ExecutionRecord = {
   tests: string;
   createdAt: number;
   idempotency: string;
+  evidence: GitEvidence & { testsDigest: string };
 };
 
 const ExecutionSchema = z.object({
@@ -22,6 +24,13 @@ const ExecutionSchema = z.object({
   tests: z.string().max(64 * 1024),
   createdAt: z.number().int().positive(),
   idempotency: z.string().regex(/^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/),
+  evidence: z.object({
+    baseCommit: z.string().regex(/^[0-9a-f]{7,64}$/i).nullable(),
+    headCommit: z.string().regex(/^[0-9a-f]{7,64}$/i).nullable(),
+    diffDigest: z.string().regex(/^[0-9a-f]{64}$/),
+    statusDigest: z.string().regex(/^[0-9a-f]{64}$/),
+    testsDigest: z.string().regex(/^[0-9a-f]{64}$/),
+  }).strict(),
 }).strict();
 
 function fileKey(idempotency: string): string { return createHash("sha256").update(idempotency).digest("hex"); }
@@ -55,9 +64,16 @@ async function appendJson(file: string, value: ExecutionRecord): Promise<Executi
   return validated;
 }
 
-export async function recordExecution(workspaceRoot: string, record: Omit<ExecutionRecord, "createdAt" | "idempotency"> & { createdAt?: number; idempotency?: string }, stateDir?: string): Promise<ExecutionRecord> {
+export async function recordExecution(workspaceRoot: string, record: Omit<ExecutionRecord, "createdAt" | "idempotency" | "evidence"> & { createdAt?: number; idempotency?: string }, stateDir?: string): Promise<ExecutionRecord> {
   const idempotency = record.idempotency ?? `execution-${record.taskId}-${record.iteration}`;
-  const value = ExecutionSchema.parse({ ...record, idempotency, createdAt: record.createdAt ?? Math.floor(Date.now() / 1000) });
+  const store = new CoordinationStore({ workspaceRoot, stateDir });
+  const tasks = await store.list("task", { task_id: record.taskId });
+  const task = tasks.at(-1);
+  if (!task || task.type !== "task") throw new Error("execution requires an existing task");
+  if (record.iteration >= task.maxIterations) throw new Error(`iteration limit reached (${task.maxIterations})`);
+  const gitEvidence = await new GitReader({ workspaceRoot }).evidence(task.baseCommit);
+  const evidence = { ...gitEvidence, testsDigest: createHash("sha256").update(record.tests).digest("hex") };
+  const value = ExecutionSchema.parse({ ...record, evidence, idempotency, createdAt: record.createdAt ?? Math.floor(Date.now() / 1000) });
   const directory = await executionDirectory(workspaceRoot, stateDir);
   return appendJson(path.join(directory, `${fileKey(idempotency)}.json`), value);
 }

@@ -14,7 +14,7 @@ describe("published plugin package", () => {
 
     expect(manifest).toMatchObject({
       name: "hua-planrelay",
-      version: "0.1.1",
+      version: "0.2.0",
       license: "MIT",
       skills: "./skills/",
       mcpServers: "./.mcp.json",

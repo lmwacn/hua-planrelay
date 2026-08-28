@@ -1,6 +1,6 @@
 {
   "name": "hua-planrelay",
-  "version": "0.1.1",
+  "version": "0.2.0",
   "description": "Workspace-safe planning and review relay for ChatGPT and Codex.",
   "author": {
     "name": "田小檬",
@@ -14,11 +14,11 @@
   "skills": "./skills/",
   "interface": {
     "displayName": "Hua PlanRelay",
-    "shortDescription": "Plan with ChatGPT, execute safely with Codex.",
-    "longDescription": "Connect ChatGPT and Codex to a workspace-safe planning and independent review workflow. Repository tools are read-only; structured coordination records live outside the workspace.",
+    "shortDescription": "Let Luna execute and Sol plan or review with consent.",
+    "longDescription": "Run a bounded coding loop where Luna and Codex execute locally while ChatGPT Sol plans or reviews through a read-only workspace bridge. Browser assistance requires explicit user consent, and reviews are bound to Git and test evidence.",
     "developerName": "田小檬",
     "category": "Productivity",
-    "capabilities": ["Read-only workspace", "Planning", "Code review"],
+    "capabilities": ["Read-only workspace", "Planning", "Evidence-bound code review", "Browser-assisted handoff"],
     "websiteURL": "https://github.com/lmwacn/hua-planrelay",
     "privacyPolicyURL": "https://github.com/lmwacn/hua-planrelay/blob/main/docs/privacy.md",
     "termsOfServiceURL": "https://github.com/lmwacn/hua-planrelay/blob/main/docs/terms.md",
